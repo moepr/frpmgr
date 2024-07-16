@@ -2,13 +2,15 @@ package config
 
 import (
 	"fmt"
+	"log"
+	"net"
 	"reflect"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/fatedier/frp/pkg/config/types"
-	"github.com/fatedier/frp/pkg/config/v1"
+	v1 "github.com/fatedier/frp/pkg/config/v1"
 	frputil "github.com/fatedier/frp/pkg/util/util"
 	"github.com/samber/lo"
 
@@ -35,10 +37,14 @@ func ClientCommonFromV1(c *v1.ClientCommonConfig) (r ClientCommon) {
 	}
 
 	r.User = c.User
+	r.DNSServer = c.DNSServer
 	r.ServerAddress = c.ServerAddr
 	r.ServerPort = c.ServerPort
+	if c.ServerPort == 0 && (strings.Contains(c.ServerAddr, "_tcp") || strings.Contains(c.ServerAddr, "_udp")) {
+		//解析srv
+		r.ServerAddress, r.ServerPort = resolveSrv(c.ServerAddr)
+	}
 	r.NatHoleSTUNServer = c.NatHoleSTUNServer
-	r.DNSServer = c.DNSServer
 	if c.LoginFailExit == nil || *c.LoginFailExit {
 		r.LoginFailExit = true
 	}
@@ -89,6 +95,31 @@ func ClientCommonFromV1(c *v1.ClientCommonConfig) (r ClientCommon) {
 	r.UDPPacketSize = c.UDPPacketSize
 	r.Metas = c.Metadatas
 	return
+}
+
+// 解析srv
+func resolveSrv(addr string) (string, int) {
+	defaultIp := "0.0.0.0"
+	defaultPort := 0
+	segments := strings.SplitN(addr, ".", 3)
+	if len(segments) != 3 {
+		fmt.Println("无效的 SRV 格式")
+		return defaultIp, defaultPort
+	}
+	service := strings.TrimPrefix(segments[0], "_")
+	proto := strings.TrimPrefix(segments[1], "_")
+	name := segments[2]
+	cname, srvs, err := net.LookupSRV(service, proto, name)
+	if err != nil {
+		log.Printf("Failed to lookup SRV record: %v\n", err)
+		return defaultIp, defaultPort
+	}
+	fmt.Printf("Canonical name: %s\n", cname)
+	for _, srv := range srvs {
+		log.Printf("Target: %s, Port: %d, Priority: %d, Weight: %d\n", srv.Target, srv.Port, srv.Priority, srv.Weight)
+		return srv.Target, int(srv.Port)
+	}
+	return defaultIp, defaultPort
 }
 
 func ClientProxyFromV1(pxyCfg TypedProxyConfig) *Proxy {

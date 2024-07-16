@@ -1,0 +1,9 @@
+{
+    "lang": "zh-CN",
+    "defaults": {
+        "logLevel": "info",
+        "logMaxDays": 3,
+        "tcpMux": true,
+        "tls": true
+    }
+}
